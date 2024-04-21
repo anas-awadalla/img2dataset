@@ -48,15 +48,14 @@ def arguments_validator(params):
         forbidden_columns = set(
             [
                 "key",
-                "caption",
-                "url",
+                "images",
+                "texts",
                 "width",
                 "height",
                 "original_width",
                 "original_height",
                 "status",
                 "error_message",
-                "exif",
                 "md5",
                 "sha256",
                 "sha512",
@@ -71,7 +70,7 @@ def arguments_validator(params):
 
 
 def download(
-    url_list: str,
+    shard_list: str,
     image_size: int = 256,
     output_folder: str = "images",
     processes_count: int = 1,
@@ -80,21 +79,18 @@ def download(
     upscale_interpolation: str = "lanczos",
     downscale_interpolation: str = "area",
     encode_quality: int = 95,
-    encode_format: str = "jpg",
     skip_reencode: bool = False,
     output_format: str = "files",
     input_format: str = "txt",
-    url_col: str = "url",
-    caption_col: Optional[str] = None,
+    images_col: str = "images",
+    text_col: str = "texts",
     bbox_col: Optional[str] = None,
     thread_count: int = 256,
     number_sample_per_shard: int = 10000,
-    extract_exif: bool = True,
     save_additional_columns: Optional[List[str]] = None,
     timeout: int = 10,
     enable_wandb: bool = False,
     wandb_project: str = "img2dataset",
-    oom_shard_count: int = 5,
     compute_hash: Optional[str] = "sha256",
     verify_hash: Optional[List[str]] = None,
     distributor: str = "multiprocessing",
@@ -125,7 +121,7 @@ def download(
         return path
 
     output_folder = make_path_absolute(output_folder)
-    url_list = make_path_absolute(url_list)
+    shard_list = make_path_absolute(shard_list)
 
     logger_process = LoggerProcess(output_folder, enable_wandb, wandb_project, config_parameters)
 
@@ -144,8 +140,6 @@ def download(
 
     signal.signal(signal.SIGINT, signal_handler)
 
-    save_caption = caption_col is not None
-
     fs, output_path = fsspec.core.url_to_fs(output_folder)
     start_shard_id = 0
 
@@ -154,13 +148,13 @@ def download(
         done_shards = set()
     else:
         if incremental_mode == "incremental":
-            done_shards = set(int(x.split("/")[-1].split("_")[0]) for x in fs.glob(output_path + "/*.json"))
+            done_shards = set(x.split("/")[-1] for x in fs.glob(output_path + "/*.json"))
         elif incremental_mode == "overwrite":
             fs.rm(output_path, recursive=True)
             fs.mkdir(output_path)
             done_shards = set()
         elif incremental_mode == "extend":
-            existing_shards = [int(x.split("/")[-1].split("_")[0]) for x in fs.glob(output_path + "/*.json")]
+            existing_shards = [x.split("/")[-1] for x in fs.glob(output_path + "/*.json")]
             start_shard_id = max(existing_shards, default=-1) + 1
             done_shards = set()
         else:
@@ -182,10 +176,10 @@ def download(
         verify_hash_type = None
 
     reader = Reader(
-        url_list,
+        shard_list,
         input_format,
-        url_col,
-        caption_col,
+        images_col,
+        text_col,
         verify_hash_col,
         verify_hash_type,
         save_additional_columns,
@@ -197,14 +191,6 @@ def download(
 
     if output_format == "webdataset":
         sample_writer_class = WebDatasetSampleWriter
-    elif output_format == "parquet":
-        sample_writer_class = ParquetSampleWriter  # type: ignore
-    elif output_format == "files":
-        sample_writer_class = FilesSampleWriter  # type: ignore
-    elif output_format == "tfrecord":
-        sample_writer_class = TFRecordSampleWriter  # type: ignore
-    elif output_format == "dummy":
-        sample_writer_class = DummySampleWriter  # type: ignore
     else:
         raise ValueError(f"Invalid output format {output_format}")
 
@@ -220,7 +206,6 @@ def download(
         upscale_interpolation=upscale_interpolation,
         downscale_interpolation=downscale_interpolation,
         encode_quality=encode_quality,
-        encode_format=encode_format,
         skip_reencode=skip_reencode,
         disable_all_reencoding=disable_all_reencoding,
         min_image_size=min_image_size,
@@ -233,16 +218,12 @@ def download(
         sample_writer_class=sample_writer_class,
         resizer=resizer,
         thread_count=thread_count,
-        save_caption=save_caption,
-        extract_exif=extract_exif,
         output_folder=output_folder,
         column_list=reader.column_list,
         timeout=timeout,
         number_sample_per_shard=number_sample_per_shard,
-        oom_shard_count=oom_shard_count,
         compute_hash=compute_hash,
         verify_hash_type=verify_hash_type,
-        encode_format=encode_format,
         retries=retries,
         user_agent_token=user_agent_token,
         disallowed_header_directives=disallowed_header_directives,
